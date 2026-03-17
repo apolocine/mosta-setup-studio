@@ -58,6 +58,63 @@ type Tab = typeof TABS[number]['key']
 
 const STORAGE_KEY = 'mosta-setup-studio'
 
+const EXAMPLE_SETUP: SetupJson = {
+  $schema: 'https://mostajs.dev/schemas/setup.v1.json',
+  app: { name: 'SecuAccessPro', port: 4567, dbNamePrefix: 'secuaccessdb' },
+  env: { MOSTAJS_MODULES: 'orm,auth,audit,rbac,settings,setup' },
+  rbac: {
+    categories: [
+      { name: 'admin', label: 'Administration', description: 'Gestion du panneau d\'administration', icon: 'Settings', order: 0, system: true },
+      { name: 'client', label: 'Clients', description: 'Gestion des clients', icon: 'Users', order: 1, system: true },
+      { name: 'activity', label: 'Activites', description: 'Gestion des activites', icon: 'Activity', order: 2, system: true },
+      { name: 'ticket', label: 'Tickets', description: 'Gestion des tickets', icon: 'Ticket', order: 3, system: true },
+      { name: 'scan', label: 'Scan', description: 'Validation des entrees', icon: 'ScanLine', order: 4, system: true },
+      { name: 'dashboard', label: 'Tableau de bord', description: 'Statistiques', icon: 'LayoutDashboard', order: 5, system: true },
+    ],
+    permissions: [
+      { code: 'admin:access', name: 'admin:access', description: 'Acceder au panneau admin', category: 'admin' },
+      { code: 'admin:settings', name: 'admin:settings', description: 'Gerer les parametres', category: 'admin' },
+      { code: 'client:view', name: 'client:view', description: 'Voir les clients', category: 'client' },
+      { code: 'client:create', name: 'client:create', description: 'Creer un client', category: 'client' },
+      { code: 'client:update', name: 'client:update', description: 'Modifier un client', category: 'client' },
+      { code: 'client:delete', name: 'client:delete', description: 'Supprimer un client', category: 'client' },
+      { code: 'activity:view', name: 'activity:view', description: 'Voir les activites', category: 'activity' },
+      { code: 'activity:create', name: 'activity:create', description: 'Creer une activite', category: 'activity' },
+      { code: 'ticket:create', name: 'ticket:create', description: 'Creer un ticket', category: 'ticket' },
+      { code: 'ticket:view', name: 'ticket:view', description: 'Voir les tickets', category: 'ticket' },
+      { code: 'scan:validate', name: 'scan:validate', description: 'Valider un scan', category: 'scan' },
+      { code: 'dashboard:view', name: 'dashboard:view', description: 'Voir le tableau de bord', category: 'dashboard' },
+    ],
+    roles: [
+      { name: 'admin', description: 'Administrateur complet', system: true, permissions: ['*'] },
+      { name: 'agent_accueil', description: 'Agent d\'accueil', system: true, permissions: ['client:view', 'client:create', 'client:update', 'activity:view', 'ticket:create', 'ticket:view', 'scan:validate', 'dashboard:view'] },
+      { name: 'superviseur', description: 'Superviseur lecture seule', system: true, permissions: ['client:view', 'activity:view', 'ticket:view', 'dashboard:view'] },
+    ],
+  },
+  seeds: [
+    {
+      key: 'activities', label: 'Activites', description: '4 activites de demonstration', icon: 'Activity',
+      default: true, collection: 'activity', match: 'slug', hashField: '', roleField: '',
+      defaults: { currency: 'DA', status: 'active' },
+      data: [
+        { name: 'Piscine', slug: 'piscine', color: '#0EA5E9', capacity: 100, price: 800 },
+        { name: 'Tennis', slug: 'tennis', color: '#22C55E', capacity: 16, price: 1000 },
+        { name: 'Football', slug: 'football', color: '#16A34A', capacity: 30, price: 500 },
+        { name: 'Restaurant', slug: 'restaurant', color: '#D97706', capacity: 80, price: 0 },
+      ],
+    },
+    {
+      key: 'demoUsers', label: 'Utilisateurs demo', description: '2 agents de test', icon: 'Users',
+      default: false, collection: 'user', match: 'email', hashField: 'password', roleField: 'role',
+      defaults: { status: 'active' },
+      data: [
+        { email: 'accueil@app.dz', password: 'Agent@123456', firstName: 'Karim', lastName: 'Bensalem', role: 'agent_accueil' },
+        { email: 'superviseur@app.dz', password: 'Super@123456', firstName: 'Nadia', lastName: 'Hamidi', role: 'superviseur' },
+      ],
+    },
+  ],
+}
+
 // ── Main Component ───────────────────────────────────────
 
 export default function SetupStudio() {
@@ -173,6 +230,11 @@ export default function SetupStudio() {
     input.click()
   }, [])
 
+  const loadExample = useCallback(() => {
+    if (setup.app.name && !confirm('Remplacer par l\'exemple SecuAccessPro ?')) return
+    setSetup(EXAMPLE_SETUP)
+  }, [setup.app.name])
+
   const resetAll = useCallback(() => {
     if (confirm('Reinitialiser tout ?')) {
       setSetup(EMPTY_SETUP)
@@ -210,6 +272,9 @@ export default function SetupStudio() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={loadExample} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-sky-50 border border-sky-200 text-sky-700 rounded-lg hover:bg-sky-100">
+            <Database className="h-4 w-4" /> Exemple
+          </button>
           <button onClick={importJson} className="flex items-center gap-1 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50">
             <Upload className="h-4 w-4" /> Importer
           </button>
