@@ -218,13 +218,9 @@ export default function SetupStudio() {
     if (setup.app.port && setup.app.port !== 3000) app.port = setup.app.port
     if (setup.app.dbNamePrefix) app.dbNamePrefix = setup.app.dbNamePrefix
     out.app = app
-    // Env — merge MOSTAJS_MODULES from modules list
+    // Env — MOSTAJS_MODULES is derived at install time by writeEnvLocal(), not stored here
     const envOut = { ...setup.env }
-    if (setup.modules.length > 0) {
-      envOut.MOSTAJS_MODULES = setup.modules.map(m => m.key).join(',')
-    } else {
-      delete envOut.MOSTAJS_MODULES
-    }
+    delete envOut.MOSTAJS_MODULES
     if (Object.keys(envOut).length > 0) out.env = envOut
     // Modules
     if (setup.modules.length > 0) {
