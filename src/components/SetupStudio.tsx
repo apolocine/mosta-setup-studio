@@ -4,7 +4,8 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import {
   Settings, Shield, Database, Eye, Download, Plus, Trash2, Copy, Check,
-  GripVertical, ChevronDown, ChevronUp, Upload, FileJson,
+  GripVertical, ChevronDown, ChevronUp, Upload, FileJson, Package, Loader2,
+  ArrowRight, ExternalLink, CheckCircle2, XCircle, AlertTriangle,
 } from 'lucide-react'
 
 // ── Types matching setup.schema.json ─────────────────────
@@ -23,10 +24,15 @@ interface SeedItem {
   default: boolean; collection: string; match: string; hashField: string
   roleField: string; defaults: Record<string, unknown>; data: Record<string, unknown>[]
 }
+interface ModuleItem {
+  key: string; packageName: string; label: string; description: string
+  icon: string; required: boolean; dependsOn: string[]
+}
 interface SetupJson {
   $schema: string
   app: { name: string; port: number; dbNamePrefix: string }
   env: Record<string, string>
+  modules: ModuleItem[]
   rbac: { categories: Category[]; permissions: Permission[]; roles: Role[] }
   seeds: SeedItem[]
 }
@@ -37,6 +43,7 @@ const EMPTY_SETUP: SetupJson = {
   $schema: 'https://mostajs.dev/schemas/setup.v1.json',
   app: { name: '', port: 3000, dbNamePrefix: '' },
   env: {},
+  modules: [],
   rbac: { categories: [], permissions: [], roles: [] },
   seeds: [],
 }
@@ -49,6 +56,7 @@ const LUCIDE_ICONS = [
 
 const TABS = [
   { key: 'app', label: 'App', icon: Settings },
+  { key: 'modules', label: 'Modules', icon: Package },
   { key: 'rbac', label: 'RBAC', icon: Shield },
   { key: 'seeds', label: 'Seeds', icon: Database },
   { key: 'preview', label: 'Preview', icon: Eye },
@@ -56,12 +64,70 @@ const TABS = [
 ] as const
 type Tab = typeof TABS[number]['key']
 
+// ── Known @mostajs modules ───────────────────────────────
+
+interface ModuleDef {
+  key: string
+  packageName: string
+  label: string
+  description: string
+  icon: string
+  required?: boolean
+  default?: boolean
+  dependsOn?: string[]
+  standalone?: boolean
+}
+
+const KNOWN_MODULES: ModuleDef[] = [
+  { key: 'orm', packageName: '@mostajs/orm', label: 'ORM', description: 'Couche d\'acces aux donnees multi-dialecte (13 SGBD)', icon: '🗄️', required: true, default: true },
+  { key: 'auth', packageName: '@mostajs/auth', label: 'Authentification', description: 'NextAuth, sessions, gestion des mots de passe', icon: '🔐', required: true, default: true, dependsOn: ['orm'] },
+  { key: 'audit', packageName: '@mostajs/audit', label: 'Audit & Logs', description: 'Journalisation des actions, tracabilite', icon: '📋', default: true, dependsOn: ['orm'] },
+  { key: 'rbac', packageName: '@mostajs/rbac', label: 'Roles & Permissions', description: 'Gestion RBAC : roles, permissions, matrice', icon: '🛡️', default: true, dependsOn: ['auth', 'audit'] },
+  { key: 'settings', packageName: '@mostajs/settings', label: 'Parametres', description: 'Parametres cle-valeur, formulaire auto', icon: '⚙️', default: true, dependsOn: ['orm'] },
+  { key: 'setup', packageName: '@mostajs/setup', label: 'Setup Wizard', description: 'Assistant d\'installation, test DB, seeds', icon: '🧙', required: true, default: true, dependsOn: ['orm'] },
+  { key: 'face', packageName: '@mostajs/face', label: 'Reconnaissance faciale', description: 'Detection visage, matching 1:N', icon: '👤', standalone: true },
+  { key: 'init', packageName: '@mostajs/init', label: 'Init & Bootstrap', description: 'Chargement automatique des modules au demarrage', icon: '🚀', dependsOn: ['orm'] },
+  { key: 'ui', packageName: '@mostajs/ui', label: 'Composants UI', description: 'Composants React reutilisables', icon: '🎨' },
+  { key: 'menu', packageName: '@mostajs/menu', label: 'Menu dynamique', description: 'Sidebar et navigation modulaire', icon: '📑', dependsOn: ['orm'] },
+  { key: 'ticketing', packageName: '@mostajs/ticketing', label: 'Ticketing', description: 'Gestion des tickets et entrees', icon: '🎫', dependsOn: ['orm'] },
+  { key: 'media', packageName: '@mostajs/media', label: 'Media', description: 'Upload et gestion des fichiers', icon: '📷', dependsOn: ['orm'] },
+  { key: 'scan', packageName: '@mostajs/scan', label: 'Scan QR/RFID', description: 'Lecture QR codes et cartes RFID', icon: '📱', dependsOn: ['orm'] },
+]
+
+function resolveModuleDeps(selected: string[]): string[] {
+  const resolved = new Set(selected)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const key of resolved) {
+      const mod = KNOWN_MODULES.find(m => m.key === key)
+      if (mod?.dependsOn) {
+        for (const dep of mod.dependsOn) {
+          if (!resolved.has(dep)) { resolved.add(dep); changed = true }
+        }
+      }
+    }
+  }
+  for (const mod of KNOWN_MODULES) {
+    if (mod.required) resolved.add(mod.key)
+  }
+  return Array.from(resolved)
+}
+
 const STORAGE_KEY = 'mosta-setup-studio'
 
 const EXAMPLE_SETUP: SetupJson = {
   $schema: 'https://mostajs.dev/schemas/setup.v1.json',
   app: { name: 'SecuAccessPro', port: 4567, dbNamePrefix: 'secuaccessdb' },
-  env: { MOSTAJS_MODULES: 'orm,auth,audit,rbac,settings,setup' },
+  env: {},
+  modules: [
+    { key: 'orm', packageName: '@mostajs/orm', label: 'ORM', description: 'Acces aux donnees multi-dialecte', icon: '🗄️', required: true, dependsOn: [] },
+    { key: 'auth', packageName: '@mostajs/auth', label: 'Authentification', description: 'NextAuth, sessions', icon: '🔐', required: true, dependsOn: ['orm'] },
+    { key: 'audit', packageName: '@mostajs/audit', label: 'Audit & Logs', description: 'Journalisation des actions', icon: '📋', required: false, dependsOn: ['orm'] },
+    { key: 'rbac', packageName: '@mostajs/rbac', label: 'Roles & Permissions', description: 'Gestion RBAC, matrice', icon: '🛡️', required: false, dependsOn: ['auth', 'audit'] },
+    { key: 'settings', packageName: '@mostajs/settings', label: 'Parametres', description: 'Cle-valeur, formulaire auto', icon: '⚙️', required: false, dependsOn: ['orm'] },
+    { key: 'setup', packageName: '@mostajs/setup', label: 'Setup Wizard', description: 'Installation, test DB, seeds', icon: '🧙', required: true, dependsOn: ['orm'] },
+  ],
   rbac: {
     categories: [
       { name: 'admin', label: 'Administration', description: 'Gestion du panneau d\'administration', icon: 'Settings', order: 0, system: true },
@@ -152,8 +218,26 @@ export default function SetupStudio() {
     if (setup.app.port && setup.app.port !== 3000) app.port = setup.app.port
     if (setup.app.dbNamePrefix) app.dbNamePrefix = setup.app.dbNamePrefix
     out.app = app
-    // Env
-    if (Object.keys(setup.env).length > 0) out.env = setup.env
+    // Env — merge MOSTAJS_MODULES from modules list
+    const envOut = { ...setup.env }
+    if (setup.modules.length > 0) {
+      envOut.MOSTAJS_MODULES = setup.modules.map(m => m.key).join(',')
+    } else {
+      delete envOut.MOSTAJS_MODULES
+    }
+    if (Object.keys(envOut).length > 0) out.env = envOut
+    // Modules
+    if (setup.modules.length > 0) {
+      out.modules = setup.modules.map(m => {
+        const o: Record<string, unknown> = { key: m.key, packageName: m.packageName }
+        if (m.label && m.label !== m.key) o.label = m.label
+        if (m.description) o.description = m.description
+        if (m.icon && m.icon !== '📦') o.icon = m.icon
+        if (m.required) o.required = true
+        if (m.dependsOn?.length) o.dependsOn = m.dependsOn
+        return o
+      })
+    }
     // RBAC
     if (setup.rbac.categories.length || setup.rbac.permissions.length || setup.rbac.roles.length) {
       const rbac: Record<string, unknown> = {}
@@ -222,8 +306,9 @@ export default function SetupStudio() {
         setSetup({
           ...EMPTY_SETUP,
           ...parsed,
-          rbac: { ...EMPTY_SETUP.rbac, ...(parsed.rbac ?? {}) },
           app: { ...EMPTY_SETUP.app, ...(parsed.app ?? {}) },
+          modules: parsed.modules ?? EMPTY_SETUP.modules,
+          rbac: { ...EMPTY_SETUP.rbac, ...(parsed.rbac ?? {}) },
         })
       } catch { alert('JSON invalide') }
     }
@@ -312,12 +397,212 @@ export default function SetupStudio() {
         {/* Main content */}
         <main className="flex-1 p-6 overflow-y-auto">
           {tab === 'app' && <AppTab app={setup.app} env={setup.env} onAppChange={updateApp} onEnvChange={env => setSetup(s => ({ ...s, env }))} />}
+          {tab === 'modules' && <ModulesTab modules={setup.modules} env={setup.env}
+            onModulesChange={modules => setSetup(s => ({ ...s, modules }))} />}
           {tab === 'rbac' && <RbacTab rbac={setup.rbac} onChange={updateRbac} />}
           {tab === 'seeds' && <SeedsTab seeds={setup.seeds} categories={setup.rbac.categories} onChange={seeds => setSetup(s => ({ ...s, seeds }))} />}
           {tab === 'preview' && <PreviewTab json={generateJson()} warnings={warnings} />}
           {tab === 'export' && <ExportTab json={generateJson()} onCopy={copyJson} onDownload={downloadJson} copied={copied} />}
         </main>
       </div>
+    </div>
+  )
+}
+
+// ── Tab: Modules ─────────────────────────────────────────
+
+function ModulesTab({ modules, env, onModulesChange }: {
+  modules: ModuleItem[]; env: Record<string, string>
+  onModulesChange: (modules: ModuleItem[]) => void
+}) {
+  const [npmStatus, setNpmStatus] = useState<Record<string, 'loading' | 'found' | 'not_found' | 'error'>>({})
+  const [customKey, setCustomKey] = useState('')
+  const [customPkg, setCustomPkg] = useState('')
+
+  const toggleModule = useCallback((key: string) => {
+    const mod = modules.find(m => m.key === key)
+    if (mod?.required) return
+    if (mod) {
+      // Remove — also remove dependents
+      const toRemove = new Set([key])
+      let changed = true
+      while (changed) {
+        changed = false
+        for (const m of modules) {
+          if (toRemove.has(m.key) || m.required) continue
+          if (m.dependsOn?.some(d => toRemove.has(d))) { toRemove.add(m.key); changed = true }
+        }
+      }
+      onModulesChange(modules.filter(m => !toRemove.has(m.key)))
+    } else {
+      // Add from KNOWN
+      const known = KNOWN_MODULES.find(m => m.key === key)
+      if (!known) return
+      const newMod: ModuleItem = { key: known.key, packageName: known.packageName, label: known.label, description: known.description, icon: known.icon, required: !!known.required, dependsOn: known.dependsOn ?? [] }
+      let result = [...modules, newMod]
+      // Auto-add dependencies
+      for (const dep of known.dependsOn ?? []) {
+        if (!result.find(m => m.key === dep)) {
+          const depMod = KNOWN_MODULES.find(m => m.key === dep)
+          if (depMod) result.push({ key: depMod.key, packageName: depMod.packageName, label: depMod.label, description: depMod.description, icon: depMod.icon, required: !!depMod.required, dependsOn: depMod.dependsOn ?? [] })
+        }
+      }
+      onModulesChange(result)
+    }
+  }, [modules, onModulesChange])
+
+  const addCustom = useCallback(() => {
+    const key = customKey.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+    const pkg = customPkg.trim() || `@mostajs/${key}`
+    if (!key || modules.find(m => m.key === key)) return
+    onModulesChange([...modules, { key, packageName: pkg, label: key, description: `Module ${key}`, icon: '📦', required: false, dependsOn: [] }])
+    setCustomKey(''); setCustomPkg('')
+  }, [customKey, customPkg, modules, onModulesChange])
+
+  const removeModule = useCallback((key: string) => {
+    const mod = modules.find(m => m.key === key)
+    if (mod?.required) return
+    onModulesChange(modules.filter(m => m.key !== key))
+  }, [modules, onModulesChange])
+
+  const checkNpm = useCallback(async (packageName: string, key: string) => {
+    setNpmStatus(s => ({ ...s, [key]: 'loading' }))
+    try {
+      const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, { mode: 'cors' })
+      setNpmStatus(s => ({ ...s, [key]: res.ok ? 'found' : 'not_found' }))
+    } catch {
+      setNpmStatus(s => ({ ...s, [key]: 'error' }))
+    }
+  }, [])
+
+  const checkAllNpm = useCallback(() => {
+    modules.forEach(m => checkNpm(m.packageName, m.key))
+  }, [modules, checkNpm])
+
+  const selectedKeys = new Set(modules.map(m => m.key))
+
+  return (
+    <div className="space-y-6">
+      <SectionTitle title="Modules" subtitle="Modules @mostajs a utiliser dans le projet (exportes dans setup.json)" />
+
+      {/* Active modules summary */}
+      <div className="flex items-center gap-3 p-3 bg-sky-50 border border-sky-200 rounded-lg">
+        <Package className="h-5 w-5 text-sky-600" />
+        <div className="flex-1">
+          <p className="text-sm font-medium text-sky-800">{modules.length} module{modules.length !== 1 ? 's' : ''} selectionne{modules.length !== 1 ? 's' : ''}</p>
+          <code className="text-xs text-sky-600">{modules.map(m => m.key).join(', ') || '(aucun)'}</code>
+        </div>
+        <button onClick={checkAllNpm} className="flex items-center gap-1 px-2 py-1 text-xs bg-white border border-sky-300 rounded-lg text-sky-700 hover:bg-sky-100">
+          <ExternalLink className="h-3 w-3" /> Verifier npm
+        </button>
+      </div>
+
+      {/* Catalogue @mostajs */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Catalogue @mostajs</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {KNOWN_MODULES.map(mod => {
+            const selected = selectedKeys.has(mod.key)
+            const status = npmStatus[mod.key]
+            return (
+              <div key={mod.key} onClick={() => toggleModule(mod.key)}
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                  selected ? 'border-sky-500 bg-sky-50 hover:shadow-md' :
+                  'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                }`}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{mod.icon}</span>
+                    <span className="font-semibold text-sm text-gray-900">{mod.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {mod.required && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">requis</span>}
+                    {mod.standalone && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700">standalone</span>}
+                    {status === 'loading' && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />}
+                    {status === 'found' && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
+                    {status === 'not_found' && <XCircle className="h-3.5 w-3.5 text-red-400" />}
+                    {status === 'error' && <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />}
+                    <input type="checkbox" checked={selected} disabled={selected && mod.required} readOnly
+                      className="rounded border-gray-300 text-sky-600 cursor-pointer" />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">{mod.description}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <code className="text-[10px] text-gray-400 font-mono">{mod.packageName}</code>
+                  {mod.dependsOn?.length ? (
+                    <span className="text-[10px] text-gray-400">depend de : {mod.dependsOn.join(', ')}</span>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Modules selectionnes — liste editable */}
+      {modules.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Modules du projet ({modules.length})</h3>
+          <div className="space-y-2">
+            {modules.map(mod => {
+              const status = npmStatus[mod.key]
+              return (
+                <div key={mod.key} className="flex items-center gap-3 p-3 bg-white border rounded-lg">
+                  <span className="text-lg">{mod.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm">{mod.label}</span>
+                      {mod.required && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">requis</span>}
+                    </div>
+                    <code className="text-[10px] text-gray-400 font-mono">{mod.packageName}</code>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {status === 'loading' && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />}
+                    {status === 'found' && <span className="text-[10px] text-green-600 font-medium">npm OK</span>}
+                    {status === 'not_found' && <span className="text-[10px] text-amber-600">local</span>}
+                    <button onClick={(e) => { e.stopPropagation(); checkNpm(mod.packageName, mod.key) }}
+                      className="text-[10px] text-sky-500 hover:text-sky-700 underline">verifier</button>
+                    {!mod.required && (
+                      <button onClick={() => removeModule(mod.key)}
+                        className="p-1 text-red-400 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Ajouter un module personnalise */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Ajouter un module personnalise / tiers</h3>
+        <div className="flex items-center gap-2">
+          <input value={customKey} onChange={e => setCustomKey(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCustom()}
+            placeholder="cle (ex: notifications)" className="input-field w-36 font-mono text-xs" />
+          <input value={customPkg} onChange={e => setCustomPkg(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCustom()}
+            placeholder="package (ex: @mostajs/notifications)" className="input-field flex-1 font-mono text-xs" />
+          <button onClick={addCustom} disabled={!customKey.trim()}
+            className="btn-sm bg-purple-600 text-white disabled:opacity-50">
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-400 mt-1">
+          Modules dans <code className="bg-gray-100 px-1 rounded">modules/</code> (local) ou via <code className="bg-gray-100 px-1 rounded">npm install</code>
+        </p>
+      </div>
+
+      {/* Commande npm install */}
+      {modules.length > 0 && (
+        <div className="p-4 bg-gray-900 rounded-lg">
+          <p className="text-xs text-gray-400 mb-2">Commande d'installation :</p>
+          <code className="text-sm text-green-400 font-mono break-all">
+            npm install {modules.map(m => m.packageName).join(' ')}
+          </code>
+        </div>
+      )}
     </div>
   )
 }
