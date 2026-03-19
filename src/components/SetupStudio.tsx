@@ -289,6 +289,25 @@ export default function SetupStudio() {
     URL.revokeObjectURL(url)
   }, [generateJson])
 
+  const downloadRouteFile = useCallback(() => {
+    const content = `// Author: Dr Hamid MADANI drmdh@msn.com
+import { createSetupRoutes } from '@mostajs/setup'
+import { appNeedsSetup, getSetupConfig } from '@/lib/setup-config'
+
+export const { GET, POST, DELETE, PATCH } = createSetupRoutes({
+  needsSetup: appNeedsSetup,
+  getSetupConfig,
+})
+`
+    const blob = new Blob([content], { type: 'text/typescript' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'route.ts'
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
   const importJson = useCallback(() => {
     const input = document.createElement('input')
     input.type = 'file'
@@ -398,7 +417,7 @@ export default function SetupStudio() {
           {tab === 'rbac' && <RbacTab rbac={setup.rbac} onChange={updateRbac} />}
           {tab === 'seeds' && <SeedsTab seeds={setup.seeds} categories={setup.rbac.categories} onChange={seeds => setSetup(s => ({ ...s, seeds }))} />}
           {tab === 'preview' && <PreviewTab json={generateJson()} warnings={warnings} />}
-          {tab === 'export' && <ExportTab json={generateJson()} onCopy={copyJson} onDownload={downloadJson} copied={copied} />}
+          {tab === 'export' && <ExportTab json={generateJson()} onCopy={copyJson} onDownload={downloadJson} onDownloadRoute={downloadRouteFile} copied={copied} />}
         </main>
       </div>
     </div>
@@ -1176,15 +1195,17 @@ function PreviewTab({ json, warnings }: { json: string; warnings: string[] }) {
 
 // ── Tab: Export ───────────────────────────────────────────
 
-function ExportTab({ json, onCopy, onDownload, copied }: {
-  json: string; onCopy: () => void; onDownload: () => void; copied: boolean
+function ExportTab({ json, onCopy, onDownload, onDownloadRoute, copied }: {
+  json: string; onCopy: () => void; onDownload: () => void; onDownloadRoute: () => void; copied: boolean
 }) {
   const lines = json.split('\n').length
   const bytes = new Blob([json]).size
 
   return (
     <div className="max-w-xl space-y-6">
-      <SectionTitle title="Export" subtitle="Telecharger ou copier le setup.json" />
+      <SectionTitle title="Export" subtitle="Telecharger les fichiers pour votre projet" />
+
+      {/* setup.json */}
       <div className="p-4 bg-white border rounded-lg space-y-4">
         <div className="flex items-center justify-between text-sm text-gray-500">
           <span>{lines} lignes, {bytes} octets</span>
@@ -1201,13 +1222,43 @@ function ExportTab({ json, onCopy, onDownload, copied }: {
         </div>
       </div>
 
+      {/* Catch-all route file */}
+      <div className="p-4 bg-white border rounded-lg space-y-4">
+        <div className="flex items-center justify-between text-sm text-gray-500">
+          <span>Route API catch-all</span>
+          <span className="font-mono text-xs">route.ts</span>
+        </div>
+        <button onClick={onDownloadRoute} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+          <Download className="h-5 w-5" /> Telecharger route.ts
+        </button>
+        <pre className="bg-gray-900 text-green-400 p-3 rounded text-xs overflow-x-auto leading-relaxed">{`import { createSetupRoutes } from '@mostajs/setup'
+import { appNeedsSetup, getSetupConfig } from '@/lib/setup-config'
+
+export const { GET, POST, DELETE, PATCH } = createSetupRoutes({
+  needsSetup: appNeedsSetup,
+  getSetupConfig,
+})`}</pre>
+      </div>
+
+      {/* Integration guide */}
       <div className="p-4 bg-gray-50 border rounded-lg">
-        <h3 className="font-semibold text-gray-700 mb-2">Integration dans votre projet</h3>
-        <ol className="text-sm text-gray-600 space-y-2 list-decimal list-inside">
+        <h3 className="font-semibold text-gray-700 mb-3">Integration dans votre projet</h3>
+        <ol className="text-sm text-gray-600 space-y-3 list-decimal list-inside">
           <li>Placer <code className="bg-gray-200 px-1 rounded">setup.json</code> a la racine du projet</li>
-          <li>Dans la route install :
+          <li>Placer <code className="bg-gray-200 px-1 rounded">route.ts</code> dans :
+            <pre className="mt-1 bg-gray-800 text-amber-300 px-3 py-2 rounded text-xs font-mono">src/app/api/setup/[...slug]/route.ts</pre>
+            <span className="text-xs text-gray-500">Ce fichier unique remplace les 6+ routes individuelles (status, test-db, create-db, preflight, install, setup-json...)</span>
+          </li>
+          <li>Creer <code className="bg-gray-200 px-1 rounded">src/lib/setup-config.ts</code> avec vos fonctions :
             <pre className="mt-1 bg-gray-900 text-green-400 p-2 rounded text-xs overflow-x-auto">{`import { loadSetupJson } from '@mostajs/setup'
-const config = await loadSetupJson('./setup.json', repoFactory)`}</pre>
+
+export async function appNeedsSetup(): Promise<boolean> {
+  // retourne true si 0 utilisateurs en base
+}
+
+export async function getSetupConfig() {
+  return loadSetupJson('./setup.json', repoFactory)
+}`}</pre>
           </li>
           <li>Le wizard lira automatiquement les categories, permissions, roles et seeds</li>
         </ol>
