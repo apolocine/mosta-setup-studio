@@ -1,0 +1,12 @@
+ScaffoldHub vs atherosai/ui.git
+
+git clone git@github.com:atherosai/ui.git
+
+
+
+
+ String concatenation (JS) vs Handlebars/EJS/AST 
+ 
+ Visual design       Oui (Schema + Page designers)     Rare (JDL Studio)
+ 
+ 
