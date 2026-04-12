@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Visual editor for setup.json — generates declarative setup manifests for @mostajs/setup",
   "author": "Dr Hamid MADANI <drmdh@msn.com>",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "private": true,
   "scripts": {
     "dev": "next dev -p 4600",
